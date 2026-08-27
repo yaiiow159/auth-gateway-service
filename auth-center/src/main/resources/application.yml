@@ -1,0 +1,82 @@
+server:
+  port: ${SERVER_PORT:9000}
+  shutdown: graceful
+
+spring:
+  application:
+    name: auth-center
+  profiles:
+    # 刻意不預設 dev：若預設為 dev，任何忘記設定 SPRING_PROFILES_ACTIVE 的部署
+    # 都會啟用 DevDataSeeder，把已知密碼的示範帳號寫進真實資料庫。
+    # 本機開發請明確加上 --spring.profiles.active=dev
+    active: ${SPRING_PROFILES_ACTIVE:}
+  threads:
+    # Java 21 虛擬執行緒：授權中心是典型的 IO 密集型服務（資料庫 + Redis），
+    # 開啟後可在不改寫成響應式程式碼的前提下大幅提升併發承載
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:authcenter;DB_CLOSE_DELAY=-1;MODE=MySQL}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      # 資料表結構由版本化的 SQL 腳本管理，不交給 Hibernate 自動產生
+      ddl-auto: none
+    open-in-view: false
+  sql:
+    init:
+      # schema.sql / data.sql 使用 H2 專屬語法（MERGE ... KEY、CREATE INDEX IF NOT EXISTS），
+      # 只在 dev profile 下執行。正式環境的結構變更應由 Flyway 或 Liquibase 管理
+      mode: never
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      # 同上：Lettuce 單一連線即可多工複用，不需要連線池
+
+auth:
+  token:
+    issuer: ${AUTH_ISSUER:https://auth.example.com}
+    audience: ${AUTH_AUDIENCE:internal-api}
+    access-token-ttl: 10m
+    refresh-token-ttl: 14d
+    # 這兩個前綴必須與 api-gateway 的設定完全一致，否則撤銷不會生效
+    revocation-key-prefix: "auth:revoked:"
+    refresh-token-key-prefix: "auth:refresh:"
+  signing:
+    key-id: ${AUTH_SIGNING_KEY_ID:auth-center-key}
+    # 留白時會在啟動時產生臨時金鑰（僅限單機開發）。
+    # 正式環境請注入 PKCS#8 / X.509 PEM，或指向 classpath: / file: 位址
+    private-key-pem: ${AUTH_SIGNING_PRIVATE_KEY:}
+    public-key-pem: ${AUTH_SIGNING_PUBLIC_KEY:}
+  cache:
+    user:
+      enabled: true
+      ttl: 60s
+      maximum-size: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.example.auth: ${LOG_LEVEL:INFO}
+
+---
+# 僅本機開發：初始化 H2 結構與示範資料
+spring:
+  config:
+    activate:
+      on-profile: dev
+  sql:
+    init:
+      mode: always

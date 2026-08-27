@@ -1,0 +1,24 @@
+server:
+  port: ${SERVER_PORT:9100}
+  shutdown: graceful
+
+spring:
+  application:
+    name: sample-order-service
+  threads:
+    virtual:
+      enabled: true
+
+auth:
+  client:
+    # 驗證網關簽章。即使網路層已隔離也建議保持開啟：
+    # 它是「有人繞過網關直連服務」時的最後一道防線
+    verify-signature: true
+    signing-secret: ${IDENTITY_SIGNING_SECRET:dev-only-shared-secret-change-me}
+    signature-ttl: 60s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

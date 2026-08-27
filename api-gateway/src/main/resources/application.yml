@@ -1,0 +1,142 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  # 網關前若還有 CDN 或負載均衡器，必須開啟才能取得真實客戶端 IP（限流與稽核都依賴它）
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+      # 刻意不設定連線池：Lettuce 的連線是執行緒安全且多工複用的，
+      # 單一連線即可承載高併發。加上連線池反而會增加資源與延遲，
+      # 只有在需要阻塞式指令（BLPOP、MULTI/EXEC）時才有必要
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 10s
+      # CORS 預檢在網關就回應完畢，不轉發到後端服務。
+      # 少了這段，預檢請求會因為「OPTIONS 免認證」而未經認證地打進後端
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+            allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+            allowedHeaders: ["*"]
+            allowCredentials: true
+            maxAge: 3600
+      default-filters:
+        # 避免上游與網關各自加一次 CORS 標頭而變成重複值
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials
+      routes:
+        # 授權中心：登入與 JWKS 必須公開，但 /internal/** 刻意不建立路由，
+        # 讓內部端點在網關層就不可能被外部觸及
+        - id: auth-center
+          uri: ${AUTH_CENTER_URI:http://localhost:9000}
+          predicates:
+            - Path=/auth/**,/.well-known/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                # 登入是暴力破解的主要標的，配額刻意遠低於一般業務端點
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+                key-resolver: "#{@principalKeyResolver}"
+
+        - id: order-service
+          uri: ${ORDER_SERVICE_URI:http://localhost:9100}
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+                key-resolver: "#{@principalKeyResolver}"
+
+gateway:
+  auth:
+    # LOCAL：以 JWKS 公鑰在網關本地驗簽（預設）；REMOTE：改呼叫授權中心自省端點
+    verification-mode: LOCAL
+
+    # 認證前的 IP 粗粒度限流。路由層的使用者限流排在認證之後，
+    # 因此需要這一道在 RSA 驗簽之前先擋掉異常流量。
+    # 配額刻意寬鬆：它要擋的是攻擊，不是正常尖峰；設太緊會誤傷共用出口 IP 的企業用戶
+    pre-auth-rate-limit:
+      enabled: true
+      replenish-rate: 200
+      burst-capacity: 400
+
+    # 免認證路徑。採白名單制，未列出的路徑一律需要有效憑證
+    public-paths:
+      - /auth/login
+      - /auth/refresh
+      - /.well-known/**
+      - /actuator/health/**
+
+    jwt:
+      jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:9000/.well-known/jwks.json}
+      issuer: ${AUTH_ISSUER:https://auth.example.com}
+      audience: ${AUTH_AUDIENCE:internal-api}
+
+    remote:
+      base-url: ${AUTH_CENTER_URI:http://localhost:9000}
+      timeout: 500ms
+
+    revocation:
+      enabled: true
+      # 必須與 auth-center 的 auth.token.revocation-key-prefix 完全一致
+      key-prefix: "auth:revoked:"
+      # Redis 不可用時放行（僅影響已登出但尚未過期的短命 Token），
+      # 金流、後台等高敏感部署應改為 false 並為 Redis 做高可用
+      fail-open: true
+
+    identity:
+      signing-enabled: true
+      # 與下游服務共享的密鑰，正式環境務必以環境變數或 Secret 注入
+      signing-secret: ${IDENTITY_SIGNING_SECRET:dev-only-shared-secret-change-me}
+      # 簽章的有效期間設定在驗章方（下游服務的 auth.client.signature-ttl），
+      # 因為「多久以內的簽章還算數」是驗章方的風險決策，不是簽章方的
+
+    authorization:
+      # 兜底為 DENY（fail-closed）：新增路由時若忘了配規則，結果是 403 而不是裸奔。
+      # 若團隊採「網關只做認證、授權全部下放服務」的分工，可改為 PERMIT，
+      # 但那等於把最後一道防線交給每一個微服務各自把關。
+      default-decision: DENY
+      super-role: ROLE_SUPER_ADMIN
+      # 規則比對的是「進入網關時的原始路徑」，也就是 StripPrefix 生效之前的路徑
+      rules:
+        # 登出只要求「已登入」，不需要任何額外權限。
+        # 這條規則的存在本身就是 fail-closed 的代價：每一條受保護路由都得被明確描述，
+        # 漏寫的下場是 403 而不是默默放行 —— 這正是我們要的失敗方向
+        - path: /auth/logout
+
+        - path: /api/orders/**
+          methods: [GET]
+          any-of-permissions: [ "order:read" ]
+        - path: /api/orders/**
+          methods: [POST, PUT, PATCH]
+          any-of-permissions: [ "order:create" ]
+        - path: /api/orders/**
+          methods: [DELETE]
+          any-of-permissions: [ "order:delete" ]
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.example.auth: ${LOG_LEVEL:INFO}
