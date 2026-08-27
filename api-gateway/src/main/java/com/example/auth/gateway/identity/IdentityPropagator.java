@@ -2,7 +2,6 @@ package com.example.auth.gateway.identity;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
-import com.example.auth.contract.IdentitySignatures;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -20,7 +19,8 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
  * <ol>
  *   <li><b>先剝除：</b>不論請求有沒有通過認證，一律移除客戶端帶進來的所有身分 Header。
  *       少了這一步，任何人只要自己加一個 {@code X-User-Id: 1} 就成了管理員。</li>
- *   <li><b>再簽章：</b>對注入的內容做 HMAC，讓下游即使被繞過網關直連也能識破偽造請求（零信任）。</li>
+ *   <li><b>再簽章：</b>依 {@link IdentitySigningPolicy} 對注入的內容做 HMAC，
+ *       讓下游即使被繞過網關直連也能識破偽造請求（零信任）。</li>
  * </ol>
  *
  * <p>使用者名稱與租戶識別碼以 URL encoding 處理後才寫入 Header：HTTP Header 只保證能承載
@@ -29,24 +29,11 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
  */
 public class IdentityPropagator {
 
-    private final boolean signingEnabled;
-    private final String signingSecret;
+    private final IdentitySigningPolicy signingPolicy;
     private final Clock clock;
 
-    /**
-     * @throws IllegalArgumentException 啟用簽章卻未提供密鑰時。這個檢查刻意放在建構子裡：
-     *                                  讓「啟用簽章但沒有密鑰」這種物件根本無法被建構出來，
-     *                                  而不是依賴每一個組裝點都記得先檢查一次。
-     *                                  失敗發生在啟動階段，好過帶著「以為有簽、其實沒簽」的設定跑上正式環境。
-     */
-    public IdentityPropagator(boolean signingEnabled, String signingSecret, Clock clock) {
-        if (signingEnabled && (signingSecret == null || signingSecret.isBlank())) {
-            throw new IllegalArgumentException(
-                    "已啟用身分簽章但未設定 gateway.auth.identity.signing-secret；"
-                            + "請由環境變數或 Secret 注入，切勿寫死在設定檔中");
-        }
-        this.signingEnabled = signingEnabled;
-        this.signingSecret = signingSecret;
+    public IdentityPropagator(IdentitySigningPolicy signingPolicy, Clock clock) {
+        this.signingPolicy = Objects.requireNonNull(signingPolicy, "signingPolicy 不可為 null");
         this.clock = Objects.requireNonNull(clock, "clock 不可為 null");
     }
 
@@ -76,9 +63,8 @@ public class IdentityPropagator {
         setIfPresent(headers, AuthHeaders.ROLES, join(user.roles()));
         setIfPresent(headers, AuthHeaders.PERMISSIONS, join(user.permissions()));
 
-        if (signingEnabled) {
-            headers.set(AuthHeaders.SIGNATURE, IdentitySignatures.sign(signingSecret, user, Instant.now(clock)));
-        }
+        signingPolicy.signatureFor(user, Instant.now(clock))
+                .ifPresent(signature -> headers.set(AuthHeaders.SIGNATURE, signature));
     }
 
     private static void setIfPresent(HttpHeaders headers, String name, String value) {

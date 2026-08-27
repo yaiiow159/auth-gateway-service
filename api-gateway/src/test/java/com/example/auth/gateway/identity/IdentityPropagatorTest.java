@@ -1,8 +1,6 @@
 package com.example.auth.gateway.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
@@ -16,9 +14,6 @@ import java.time.ZoneOffset;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -32,23 +27,8 @@ class IdentityPropagatorTest {
     private static final AuthenticatedUser USER = new AuthenticatedUser(
             "2048", "王小明", Set.of("ROLE_USER"), Set.of("order:read", "order:create"), "tenant-a");
 
-    private final IdentityPropagator propagator = new IdentityPropagator(true, SECRET, CLOCK);
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = {"   "})
-    @DisplayName("啟用簽章卻沒有密鑰時，物件無法被建構出來")
-    void rejectsSigningEnabledWithoutSecret(String blankSecret) {
-        assertThatThrownBy(() -> new IdentityPropagator(true, blankSecret, CLOCK))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("gateway.auth.identity.signing-secret");
-    }
-
-    @Test
-    @DisplayName("未啟用簽章時允許沒有密鑰")
-    void allowsMissingSecretWhenSigningDisabled() {
-        assertThatNoException().isThrownBy(() -> new IdentityPropagator(false, null, CLOCK));
-    }
+    private final IdentityPropagator propagator =
+            new IdentityPropagator(IdentitySigningPolicy.signingWith(SECRET), CLOCK);
 
     @Test
     @DisplayName("匿名請求：客戶端偽造的身分 Header 全數被剝除，且不注入任何身分")
@@ -92,7 +72,7 @@ class IdentityPropagatorTest {
     @Test
     @DisplayName("關閉簽章時不寫入簽章 Header")
     void omitsSignatureWhenSigningDisabled() {
-        IdentityPropagator unsigned = new IdentityPropagator(false, null, CLOCK);
+        IdentityPropagator unsigned = new IdentityPropagator(IdentitySigningPolicy.disabled(), CLOCK);
 
         HttpHeaders headers = unsigned.withTrustedIdentity(anonymousRequest(), USER).getHeaders();
 

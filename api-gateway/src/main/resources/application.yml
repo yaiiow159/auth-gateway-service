@@ -83,7 +83,8 @@ gateway:
       signing-enabled: true
       # 與下游服務共享的密鑰，正式環境務必以環境變數或 Secret 注入
       signing-secret: ${IDENTITY_SIGNING_SECRET:dev-only-shared-secret-change-me}
-      signature-ttl: 60s
+      # 簽章的有效期間設定在驗章方（下游服務的 auth.client.signature-ttl），
+      # 因為「多久以內的簽章還算數」是驗章方的風險決策，不是簽章方的
 
     authorization:
       # 兜底為 DENY（fail-closed）：新增路由時若忘了配規則，結果是 403 而不是裸奔。

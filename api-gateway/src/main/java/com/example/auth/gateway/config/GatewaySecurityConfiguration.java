@@ -12,6 +12,7 @@ import com.example.auth.gateway.filter.AuthorizationGlobalFilter;
 import com.example.auth.gateway.filter.IdentityPropagationGlobalFilter;
 import com.example.auth.gateway.filter.RequestIdGlobalFilter;
 import com.example.auth.gateway.identity.IdentityPropagator;
+import com.example.auth.gateway.identity.IdentitySigningPolicy;
 import com.example.auth.gateway.support.ProblemResponseWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -60,13 +61,18 @@ public class GatewaySecurityConfiguration {
     }
 
     /**
-     * 設定的合法性由 {@link IdentityPropagator} 的建構子自行把關，這裡只負責組裝。
-     * 建構子拋出的例外會被 Spring 包成 {@code BeanCreationException}，應用程式啟動即失敗。
+     * 將設定值轉換成領域型別 {@link IdentitySigningPolicy}，轉換只發生在這個組裝點。
+     *
+     * <p>設定的合法性由該型別自身把關；不合法時拋出的例外會被 Spring 包成
+     * {@code BeanCreationException}，應用程式啟動即失敗。
      */
     @Bean
     public IdentityPropagator identityPropagator(GatewayAuthProperties properties, Clock clock) {
         GatewayAuthProperties.Identity identity = properties.identity();
-        return new IdentityPropagator(identity.signingEnabled(), identity.signingSecret(), clock);
+        IdentitySigningPolicy signingPolicy = identity.signingEnabled()
+                ? IdentitySigningPolicy.signingWith(identity.signingSecret())
+                : IdentitySigningPolicy.disabled();
+        return new IdentityPropagator(signingPolicy, clock);
     }
 
     @Bean

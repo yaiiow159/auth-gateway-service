@@ -29,7 +29,7 @@ public record GatewayAuthProperties(
         jwt = jwt == null ? new Jwt(null, null, null) : jwt;
         remote = remote == null ? new Remote(null, null) : remote;
         revocation = revocation == null ? new Revocation(null, null, null) : revocation;
-        identity = identity == null ? new Identity(null, null, null) : identity;
+        identity = identity == null ? new Identity(null, null) : identity;
         authorization = authorization == null ? new Authorization(null, null, null) : authorization;
     }
 
@@ -96,15 +96,17 @@ public record GatewayAuthProperties(
     /**
      * 身分 Header 注入設定。
      *
+     * <p>此處沒有「簽章有效期間」的設定：簽章方只負責蓋上時間戳，
+     * 「多久以內的簽章還算數」是驗章方的風險決策，設定在下游服務的
+     * {@code auth.client.signature-ttl}。放一個不會被讀取的同名設定只會誤導維運。
+     *
      * @param signingEnabled 是否對注入的身分做 HMAC 簽章，讓下游能獨立驗證來源
      * @param signingSecret  與下游服務共享的密鑰，務必由環境變數或 Secret 注入
-     * @param signatureTtl   簽章有效期間，同時吸收時鐘偏移；過長會擴大重放窗口
      */
-    public record Identity(Boolean signingEnabled, String signingSecret, Duration signatureTtl) {
+    public record Identity(Boolean signingEnabled, String signingSecret) {
 
         public Identity {
             signingEnabled = signingEnabled != null && signingEnabled;
-            signatureTtl = signatureTtl == null ? Duration.ofSeconds(60) : signatureTtl;
         }
     }
 
