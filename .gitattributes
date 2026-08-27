@@ -1,0 +1,9 @@
+# 統一以 LF 存進版本庫，避免跨平台協作時整檔被判定為變更
+* text=auto eol=lf
+
+# Shell 腳本在 Windows 上簽出後仍須維持 LF，否則 bash 會因 \r 而執行失敗
+*.sh text eol=lf
+
+*.jar binary
+*.p12 binary
+*.jks binary

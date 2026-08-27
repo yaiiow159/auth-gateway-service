@@ -1,0 +1,101 @@
+package com.example.auth.gateway.config;
+
+import com.example.auth.gateway.authentication.PublicEndpointMatcher;
+import com.example.auth.gateway.authentication.TokenExtractor;
+import com.example.auth.gateway.authentication.TokenVerifier;
+import com.example.auth.gateway.authorization.AccessPolicy;
+import com.example.auth.gateway.authorization.AccessPolicyChain;
+import com.example.auth.gateway.authorization.RuleBasedAccessPolicy;
+import com.example.auth.gateway.authorization.SuperRoleAccessPolicy;
+import com.example.auth.gateway.filter.AuthenticationGlobalFilter;
+import com.example.auth.gateway.filter.AuthorizationGlobalFilter;
+import com.example.auth.gateway.filter.IdentityPropagationGlobalFilter;
+import com.example.auth.gateway.filter.RequestIdGlobalFilter;
+import com.example.auth.gateway.identity.IdentityPropagator;
+import com.example.auth.gateway.support.ProblemResponseWriter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
+import java.util.List;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 網關安全管線的組裝點。
+ *
+ * <p>整條鏈的順序、每個環節用什麼實作，全部在這一個檔案裡交代完畢。
+ * 想理解「一個請求進到網關後會經過什麼」，讀這裡與 {@code FilterOrder} 就夠了。
+ */
+@Configuration(proxyBeanMethods = false)
+public class GatewaySecurityConfiguration {
+
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+
+    @Bean
+    public ProblemResponseWriter problemResponseWriter(ObjectMapper objectMapper, Clock clock) {
+        return new ProblemResponseWriter(objectMapper, clock);
+    }
+
+    @Bean
+    public AccessPolicy superRoleAccessPolicy(GatewayAuthProperties properties) {
+        return new SuperRoleAccessPolicy(properties.authorization().superRole());
+    }
+
+    @Bean
+    public AccessPolicy ruleBasedAccessPolicy(GatewayAuthProperties properties) {
+        return new RuleBasedAccessPolicy(properties.authorization().rules());
+    }
+
+    /**
+     * 責任鏈接受所有 {@link AccessPolicy} 型別的 Bean。
+     *
+     * <p>這是刻意留下的擴充點：日後要加入 IP 白名單、營業時間限制或 OPA 遠端判定，
+     * 只需要新增一個 Bean 並指定 {@code order()}，這個檔案不需要修改。
+     */
+    @Bean
+    public AccessPolicyChain accessPolicyChain(List<AccessPolicy> policies, GatewayAuthProperties properties) {
+        return new AccessPolicyChain(policies, properties.authorization().defaultDecision());
+    }
+
+    @Bean
+    public IdentityPropagator identityPropagator(GatewayAuthProperties properties, Clock clock) {
+        GatewayAuthProperties.Identity identity = properties.identity();
+        if (identity.signingEnabled() && isBlank(identity.signingSecret())) {
+            throw new IllegalStateException(
+                    "已啟用身分簽章但未設定 gateway.auth.identity.signing-secret；"
+                            + "請由環境變數或 Secret 注入，切勿寫死在設定檔中");
+        }
+        return new IdentityPropagator(identity.signingEnabled(), identity.signingSecret(), clock);
+    }
+
+    @Bean
+    public RequestIdGlobalFilter requestIdGlobalFilter() {
+        return new RequestIdGlobalFilter();
+    }
+
+    @Bean
+    public AuthenticationGlobalFilter authenticationGlobalFilter(PublicEndpointMatcher publicEndpointMatcher,
+                                                                 TokenExtractor tokenExtractor,
+                                                                 TokenVerifier tokenVerifier,
+                                                                 ProblemResponseWriter problemResponseWriter) {
+        return new AuthenticationGlobalFilter(
+                publicEndpointMatcher, tokenExtractor, tokenVerifier, problemResponseWriter);
+    }
+
+    @Bean
+    public AuthorizationGlobalFilter authorizationGlobalFilter(AccessPolicyChain accessPolicyChain,
+                                                               ProblemResponseWriter problemResponseWriter) {
+        return new AuthorizationGlobalFilter(accessPolicyChain, problemResponseWriter);
+    }
+
+    @Bean
+    public IdentityPropagationGlobalFilter identityPropagationGlobalFilter(IdentityPropagator identityPropagator) {
+        return new IdentityPropagationGlobalFilter(identityPropagator);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+}

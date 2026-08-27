@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.example.auth</groupId>
+    <artifactId>auth-gateway-service</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>auth-client-spring-boot-starter</artifactId>
+  <name>auth-client-spring-boot-starter</name>
+  <description>
+    下游微服務用的整合套件：解析網關注入的身分 Header、驗證簽章、提供 @CurrentUser 與 @RequiresPermission。
+    讓每個服務不必各自重寫一遍讀 Header 的樣板程式碼，也不會各自寫出不一樣的安全漏洞。
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.example.auth</groupId>
+      <artifactId>auth-contract</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+    <!-- 由使用端提供：本套件只在 Servlet Web 應用中啟用，不強迫非 Web 模組引入 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-configuration-processor</artifactId>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+</project>

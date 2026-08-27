@@ -1,0 +1,17 @@
+target/
+.run/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# 金鑰與密鑰絕不進版控
+*.pem
+*.p12
+*.jks
+.env
