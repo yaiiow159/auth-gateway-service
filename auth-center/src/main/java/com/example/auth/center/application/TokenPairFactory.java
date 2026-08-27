@@ -27,7 +27,8 @@ public class TokenPairFactory {
 
     public TokenPair createFor(UserAccount account) {
         IssuedToken accessToken = accessTokenIssuer.issue(account);
-        RefreshToken refreshToken = refreshTokenStore.issue(account.id());
+        // 以 Access Token 的 jti 作為工作階段識別，讓登出時能只作廢這個裝置的憑證
+        RefreshToken refreshToken = refreshTokenStore.issue(account.id(), accessToken.tokenId());
         return new TokenPair(
                 accessToken,
                 new IssuedToken(refreshToken.tokenId(), refreshToken.tokenId(), refreshToken.expiresAt()));
