@@ -20,6 +20,16 @@ spring:
       httpclient:
         connect-timeout: 1000
         response-timeout: 10s
+      # CORS 預檢在網關就回應完畢，不轉發到後端服務。
+      # 少了這段，預檢請求會因為「OPTIONS 免認證」而未經認證地打進後端
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+            allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+            allowedHeaders: ["*"]
+            allowCredentials: true
+            maxAge: 3600
       default-filters:
         # 避免上游與網關各自加一次 CORS 標頭而變成重複值
         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials
@@ -54,6 +64,14 @@ gateway:
   auth:
     # LOCAL：以 JWKS 公鑰在網關本地驗簽（預設）；REMOTE：改呼叫授權中心自省端點
     verification-mode: LOCAL
+
+    # 認證前的 IP 粗粒度限流。路由層的使用者限流排在認證之後，
+    # 因此需要這一道在 RSA 驗簽之前先擋掉異常流量。
+    # 配額刻意寬鬆：它要擋的是攻擊，不是正常尖峰；設太緊會誤傷共用出口 IP 的企業用戶
+    pre-auth-rate-limit:
+      enabled: true
+      replenish-rate: 200
+      burst-capacity: 400
 
     # 免認證路徑。採白名單制，未列出的路徑一律需要有效憑證
     public-paths:

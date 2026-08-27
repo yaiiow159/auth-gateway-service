@@ -21,7 +21,8 @@ public record GatewayAuthProperties(
         Remote remote,
         Revocation revocation,
         Identity identity,
-        Authorization authorization) {
+        Authorization authorization,
+        PreAuthRateLimit preAuthRateLimit) {
 
     public GatewayAuthProperties {
         verificationMode = verificationMode == null ? VerificationMode.LOCAL : verificationMode;
@@ -31,6 +32,7 @@ public record GatewayAuthProperties(
         revocation = revocation == null ? new Revocation(null, null, null) : revocation;
         identity = identity == null ? new Identity(null, null) : identity;
         authorization = authorization == null ? new Authorization(null, null, null) : authorization;
+        preAuthRateLimit = preAuthRateLimit == null ? new PreAuthRateLimit(null, null, null) : preAuthRateLimit;
     }
 
     /**
@@ -74,6 +76,25 @@ public record GatewayAuthProperties(
             jwkSetUri = orDefault(jwkSetUri, "http://localhost:9000/.well-known/jwks.json");
             issuer = orDefault(issuer, "https://auth.example.com");
             audience = orDefault(audience, "internal-api");
+        }
+    }
+
+    /**
+     * 認證前的 IP 粗粒度限流設定。
+     *
+     * <p>配額應明顯寬於路由層的使用者限流：它要擋的是攻擊流量，不是正常尖峰。
+     * 設得太緊會誤傷共用出口 IP 的企業用戶或行動網路用戶。
+     *
+     * @param enabled         是否啟用
+     * @param replenishRate   每秒補充的權杖數，等同穩態允許的 QPS
+     * @param burstCapacity   權杖桶容量，決定可容忍的瞬時尖峰
+     */
+    public record PreAuthRateLimit(Boolean enabled, Integer replenishRate, Integer burstCapacity) {
+
+        public PreAuthRateLimit {
+            enabled = enabled == null || enabled;
+            replenishRate = replenishRate == null ? 200 : replenishRate;
+            burstCapacity = burstCapacity == null ? 400 : burstCapacity;
         }
     }
 

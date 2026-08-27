@@ -15,6 +15,14 @@ public final class FilterOrder {
     /** 補齊 Request Id，必須最先執行，讓之後所有日誌都能帶上它。 */
     public static final int REQUEST_ID = -1000;
 
+    /**
+     * 以來源 IP 為單位的粗粒度限流，必須排在認證之前。
+     *
+     * <p>排在認證之後的話，每個最終會被擋下的請求都已經先付出了一次 RSA 驗簽與一次
+     * Redis 查詢的成本 —— 限流原本要防的正是這件事。
+     */
+    public static final int PRE_AUTH_RATE_LIMIT = -950;
+
     /** 驗證 Token 並解析身分。 */
     public static final int AUTHENTICATION = -900;
 

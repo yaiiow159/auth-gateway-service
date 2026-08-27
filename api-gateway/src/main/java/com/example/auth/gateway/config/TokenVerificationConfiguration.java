@@ -80,6 +80,8 @@ public class TokenVerificationConfiguration {
      *   <li>簽發者與受眾：擋下把其他系統的合法 Token 拿來用的橫向移動。</li>
      *   <li>Token 類型：擋下拿 Refresh Token 當 Access Token 用的提權手法。</li>
      *   <li>{@code jti} 必須存在：沒有它就無法被撤銷，等於一張收不回來的通行證。</li>
+     *   <li>{@code sub} 必須存在：缺少時 AuthenticatedUser 的建構子會拋出 NullPointerException，
+     *       而那不是 JwtException，兩個 onErrorResume 都攔不到，網關會回 500 而非 401。</li>
      * </ul>
      */
     private static OAuth2TokenValidator<Jwt> jwtValidator(GatewayAuthProperties.Jwt jwt) {
@@ -91,7 +93,8 @@ public class TokenVerificationConfiguration {
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
                         audiences -> audiences != null && audiences.contains(jwt.audience())),
                 new JwtClaimValidator<String>(ClaimNames.TOKEN_TYPE, ClaimNames.TYPE_ACCESS::equals),
-                new JwtClaimValidator<String>(JwtClaimNames.JTI, Objects::nonNull));
+                new JwtClaimValidator<String>(JwtClaimNames.JTI, Objects::nonNull),
+                new JwtClaimValidator<String>(JwtClaimNames.SUB, Objects::nonNull));
     }
 
     @Bean

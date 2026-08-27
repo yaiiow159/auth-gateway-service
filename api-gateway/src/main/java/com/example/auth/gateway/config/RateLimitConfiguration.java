@@ -1,7 +1,7 @@
 package com.example.auth.gateway.config;
 
+import com.example.auth.gateway.support.ClientAddresses;
 import com.example.auth.gateway.support.ExchangeAttributes;
-import java.util.Optional;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +19,6 @@ public class RateLimitConfiguration {
 
     private static final String ANONYMOUS_KEY_PREFIX = "ip:";
     private static final String USER_KEY_PREFIX = "user:";
-    private static final String UNKNOWN_CLIENT = "unknown";
 
     /**
      * 已登入者以使用者為單位限流，匿名請求退回以來源 IP 為單位。
@@ -35,14 +34,6 @@ public class RateLimitConfiguration {
         return exchange -> Mono.just(
                 ExchangeAttributes.authenticatedUser(exchange)
                         .map(user -> USER_KEY_PREFIX + user.userId())
-                        .orElseGet(() -> ANONYMOUS_KEY_PREFIX + remoteAddress(exchange)));
-    }
-
-    private static String remoteAddress(org.springframework.web.server.ServerWebExchange exchange) {
-        return Optional.ofNullable(exchange.getRequest().getRemoteAddress())
-                .map(address -> address.getAddress() == null
-                        ? UNKNOWN_CLIENT
-                        : address.getAddress().getHostAddress())
-                .orElse(UNKNOWN_CLIENT);
+                        .orElseGet(() -> ANONYMOUS_KEY_PREFIX + ClientAddresses.of(exchange)));
     }
 }

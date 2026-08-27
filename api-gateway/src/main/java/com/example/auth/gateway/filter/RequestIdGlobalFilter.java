@@ -3,6 +3,7 @@ package com.example.auth.gateway.filter;
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.gateway.support.FilterOrder;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -19,6 +20,9 @@ import reactor.core.publisher.Mono;
  */
 public class RequestIdGlobalFilter implements GlobalFilter, Ordered {
 
+    /** 追蹤識別碼的安全格式：僅英數與少數符號，長度上限 128。 */
+    private static final Pattern SAFE_REQUEST_ID = Pattern.compile("[A-Za-z0-9._-]{1,128}");
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String requestId = resolveRequestId(exchange.getRequest());
@@ -30,10 +34,18 @@ public class RequestIdGlobalFilter implements GlobalFilter, Ordered {
         return chain.filter(exchange.mutate().request(request).build());
     }
 
-    /** 沿用上游（例如 CDN 或前端）已產生的識別碼，讓追蹤鏈不會在網關斷掉。 */
+    /**
+     * 沿用上游（例如 CDN 或前端）已產生的識別碼，讓追蹤鏈不會在網關斷掉。
+     *
+     * <p>但只在它符合安全格式時才沿用。這個值會被寫進日誌並轉發給所有下游服務，
+     * 直接採信等於讓任何人都能以換行字元偽造日誌行來掩蓋自己的足跡，
+     * 或以超長字串把每一筆相關日誌撐大。格式不符時一律改用自行產生的識別碼。
+     */
     private static String resolveRequestId(ServerHttpRequest request) {
         String existing = request.getHeaders().getFirst(AuthHeaders.REQUEST_ID);
-        return existing == null || existing.isBlank() ? UUID.randomUUID().toString() : existing;
+        return existing != null && SAFE_REQUEST_ID.matcher(existing).matches()
+                ? existing
+                : UUID.randomUUID().toString();
     }
 
     @Override

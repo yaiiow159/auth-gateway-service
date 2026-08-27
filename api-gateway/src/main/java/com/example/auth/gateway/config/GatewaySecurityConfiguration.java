@@ -10,6 +10,7 @@ import com.example.auth.gateway.authorization.SuperRoleAccessPolicy;
 import com.example.auth.gateway.filter.AuthenticationGlobalFilter;
 import com.example.auth.gateway.filter.AuthorizationGlobalFilter;
 import com.example.auth.gateway.filter.IdentityPropagationGlobalFilter;
+import com.example.auth.gateway.filter.PreAuthRateLimitGlobalFilter;
 import com.example.auth.gateway.filter.RequestIdGlobalFilter;
 import com.example.auth.gateway.identity.IdentityPropagator;
 import com.example.auth.gateway.identity.IdentitySigningPolicy;
@@ -17,6 +18,8 @@ import com.example.auth.gateway.support.ProblemResponseWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -78,6 +81,20 @@ public class GatewaySecurityConfiguration {
     @Bean
     public RequestIdGlobalFilter requestIdGlobalFilter() {
         return new RequestIdGlobalFilter();
+    }
+
+    /**
+     * 認證前的 IP 限流，沿用 Spring Cloud Gateway 內建的 Redis 權杖桶實作。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "gateway.auth.pre-auth-rate-limit", name = "enabled",
+            havingValue = "true", matchIfMissing = true)
+    public PreAuthRateLimitGlobalFilter preAuthRateLimitGlobalFilter(RedisRateLimiter redisRateLimiter,
+                                                                     ProblemResponseWriter problemResponseWriter,
+                                                                     GatewayAuthProperties properties) {
+        GatewayAuthProperties.PreAuthRateLimit config = properties.preAuthRateLimit();
+        return new PreAuthRateLimitGlobalFilter(redisRateLimiter, problemResponseWriter,
+                config.replenishRate(), config.burstCapacity());
     }
 
     @Bean
