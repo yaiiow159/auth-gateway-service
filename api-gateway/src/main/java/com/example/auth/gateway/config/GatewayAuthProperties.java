@@ -28,7 +28,7 @@ public record GatewayAuthProperties(
         verificationMode = verificationMode == null ? VerificationMode.LOCAL : verificationMode;
         publicPaths = publicPaths == null ? List.of() : List.copyOf(publicPaths);
         jwt = jwt == null ? new Jwt(null, null, null) : jwt;
-        remote = remote == null ? new Remote(null, null) : remote;
+        remote = remote == null ? new Remote(null, null, null, null) : remote;
         revocation = revocation == null ? new Revocation(null, null, null) : revocation;
         identity = identity == null ? new Identity(null, null) : identity;
         authorization = authorization == null ? new Authorization(null, null, null) : authorization;
@@ -52,14 +52,23 @@ public record GatewayAuthProperties(
     /**
      * 遠端驗證模式的連線設定，僅在 {@link VerificationMode#REMOTE} 下生效。
      *
-     * @param baseUrl 授權中心的內部位址
-     * @param timeout 單次自省呼叫的逾時上限；沒有逾時就等於把網關的執行緒交給下游決定
+     * @param baseUrl      授權中心的內部位址
+     * @param timeout      單次自省呼叫的逾時上限；沒有逾時就等於把網關的執行緒交給下游決定
+     * @param cacheTtl     自省結果的快取存活時間。它直接決定登出與撤銷的最大延遲，
+     *                     因此只能是秒級 —— 快取是為了削掉重複呼叫的尖峰，不是為了長期持有授權結論
+     * @param cacheMaxSize 快取筆數上限，避免大量無效 Token 的探測把記憶體吃光
      */
-    public record Remote(String baseUrl, Duration timeout) {
+    public record Remote(String baseUrl, Duration timeout, Duration cacheTtl, Integer cacheMaxSize) {
 
         public Remote {
             baseUrl = orDefault(baseUrl, "http://localhost:9000");
             timeout = timeout == null ? Duration.ofMillis(500) : timeout;
+            cacheTtl = cacheTtl == null ? Duration.ofSeconds(5) : cacheTtl;
+            cacheMaxSize = cacheMaxSize == null ? 50_000 : cacheMaxSize;
+        }
+
+        public boolean cacheEnabled() {
+            return !cacheTtl.isZero() && !cacheTtl.isNegative();
         }
     }
 

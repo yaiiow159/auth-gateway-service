@@ -26,6 +26,21 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+
+    <!--
+      分散式追蹤：Micrometer Tracing 提供與供應商無關的 API，OTLP exporter 負責輸出。
+      選 OTLP 而非任何一家 APM 的專屬協定，是為了讓後端（Jaeger、Tempo、Datadog…）
+      成為可替換的部署決定，而不是寫死在程式碼裡的依賴。
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
+
   </dependencies>
 
   <build>

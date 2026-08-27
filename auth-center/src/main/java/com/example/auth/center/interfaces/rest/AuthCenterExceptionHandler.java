@@ -1,6 +1,9 @@
 package com.example.auth.center.interfaces.rest;
 
 import com.example.auth.center.application.AuthenticationFailedException;
+import com.example.auth.center.application.UsernameAlreadyTakenException;
+import com.example.auth.center.infrastructure.persistence.RoleNotFoundException;
+import com.example.auth.center.infrastructure.persistence.UserNotFoundException;
 import com.example.auth.contract.ApiError;
 import com.example.auth.contract.AuthErrorCode;
 import com.example.auth.contract.AuthHeaders;
@@ -45,6 +48,24 @@ public class AuthCenterExceptionHandler {
     public ResponseEntity<ApiError> handleAuthenticationFailed(AuthenticationFailedException e,
                                                                HttpServletRequest request) {
         return toResponse(e.errorCode(), e.errorCode().defaultMessage(), request);
+    }
+
+    @ExceptionHandler(UsernameAlreadyTakenException.class)
+    public ResponseEntity<ApiError> handleUsernameTaken(UsernameAlreadyTakenException e,
+                                                        HttpServletRequest request) {
+        return toResponse(AuthErrorCode.USERNAME_ALREADY_TAKEN,
+                AuthErrorCode.USERNAME_ALREADY_TAKEN.defaultMessage(), request);
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ApiError> handleUserNotFound(UserNotFoundException e, HttpServletRequest request) {
+        return toResponse(AuthErrorCode.USER_NOT_FOUND, AuthErrorCode.USER_NOT_FOUND.defaultMessage(), request);
+    }
+
+    /** 訊息中包含缺少的角色代碼：這是管理者輸入的內容，回傳它有助於修正而不會洩漏其他資訊。 */
+    @ExceptionHandler(RoleNotFoundException.class)
+    public ResponseEntity<ApiError> handleRoleNotFound(RoleNotFoundException e, HttpServletRequest request) {
+        return toResponse(AuthErrorCode.ROLE_NOT_FOUND, "指定的角色不存在: " + e.missingRoleCodes(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -2,6 +2,7 @@ package com.example.auth.gateway.config;
 
 import com.example.auth.contract.ClaimNames;
 import com.example.auth.gateway.authentication.BearerTokenExtractor;
+import com.example.auth.gateway.authentication.CachingTokenVerifier;
 import com.example.auth.gateway.authentication.CompositeTokenExtractor;
 import com.example.auth.gateway.authentication.CookieTokenExtractor;
 import com.example.auth.gateway.authentication.JwtTokenVerifier;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Objects;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.cloud.client.circuitbreaker.ReactiveCircuitBreakerFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -41,6 +43,7 @@ public class TokenVerificationConfiguration {
 
     private static final String TOKEN_COOKIE_NAME = "access_token";
     private static final int CLOCK_SKEW_SECONDS = 30;
+    private static final String INTROSPECTION_CIRCUIT_BREAKER = "tokenIntrospection";
 
     @Bean
     public PublicEndpointMatcher publicEndpointMatcher(GatewayAuthProperties properties) {
@@ -108,12 +111,11 @@ public class TokenVerificationConfiguration {
     public TokenVerifier tokenVerifier(GatewayAuthProperties properties,
                                        ReactiveJwtDecoder jwtDecoder,
                                        TokenRevocationChecker revocationChecker,
-                                       WebClient.Builder webClientBuilder) {
+                                       WebClient.Builder webClientBuilder,
+                                       ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory) {
         TokenVerifier baseVerifier = switch (properties.verificationMode()) {
             case LOCAL -> new JwtTokenVerifier(jwtDecoder);
-            case REMOTE -> new RemoteIntrospectionTokenVerifier(
-                    webClientBuilder.baseUrl(properties.remote().baseUrl()).build(),
-                    properties.remote().timeout());
+            case REMOTE -> remoteVerifier(properties, webClientBuilder, circuitBreakerFactory);
         };
         // 遠端自省已經在授權中心那側查過撤銷名單，不需要在網關重複查一次
         boolean needsRevocationCheck = properties.revocation().enabled()
@@ -121,5 +123,25 @@ public class TokenVerificationConfiguration {
         return needsRevocationCheck
                 ? new RevocationAwareTokenVerifier(baseVerifier, revocationChecker)
                 : baseVerifier;
+    }
+
+    /**
+     * 遠端自省的驗證器：斷路器包住呼叫，短時快取再包住整體。
+     *
+     * <p>順序有意義 —— 快取在外層，因此被快取命中的請求連斷路器都不會碰到；
+     * 斷路器在內層，統計的是真正發出去的呼叫，不會被快取命中稀釋掉失敗率而遲遲不跳閘。
+     */
+    private static TokenVerifier remoteVerifier(GatewayAuthProperties properties,
+                                                WebClient.Builder webClientBuilder,
+                                                ReactiveCircuitBreakerFactory<?, ?> circuitBreakerFactory) {
+        GatewayAuthProperties.Remote remote = properties.remote();
+        TokenVerifier verifier = new RemoteIntrospectionTokenVerifier(
+                webClientBuilder.baseUrl(remote.baseUrl()).build(),
+                remote.timeout(),
+                circuitBreakerFactory.create(INTROSPECTION_CIRCUIT_BREAKER));
+
+        return remote.cacheEnabled()
+                ? new CachingTokenVerifier(verifier, remote.cacheTtl(), remote.cacheMaxSize())
+                : verifier;
     }
 }

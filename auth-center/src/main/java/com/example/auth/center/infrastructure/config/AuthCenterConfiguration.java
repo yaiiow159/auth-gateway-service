@@ -11,7 +11,7 @@ import com.example.auth.center.infrastructure.crypto.BCryptPasswordHasher;
 import com.example.auth.center.infrastructure.crypto.InMemoryRsaKeyProvider;
 import com.example.auth.center.infrastructure.crypto.NimbusAccessTokenIssuer;
 import com.example.auth.center.infrastructure.crypto.NimbusAccessTokenVerifier;
-import com.example.auth.center.infrastructure.crypto.PemRsaKeyProvider;
+import com.example.auth.center.infrastructure.crypto.RotatingRsaKeyProvider;
 import com.example.auth.center.infrastructure.persistence.CachingUserAccountRepository;
 import com.example.auth.center.infrastructure.persistence.JpaUserAccountRepository;
 import com.example.auth.center.infrastructure.redis.RedisRefreshTokenStore;
@@ -20,6 +20,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -37,6 +41,7 @@ import org.springframework.util.StreamUtils;
 public class AuthCenterConfiguration {
 
     private static final int BCRYPT_STRENGTH = 10;
+    private static final String DEV_KEY_ID = "auth-center-dev-key";
     private static final String CLASSPATH_PREFIX = "classpath:";
     private static final String FILE_PREFIX = "file:";
 
@@ -53,13 +58,32 @@ public class AuthCenterConfiguration {
 
     @Bean
     public RsaKeyProvider rsaKeyProvider(SigningKeyProperties properties, ResourceLoader resourceLoader) {
-        if (!properties.hasStaticKeyPair()) {
-            return new InMemoryRsaKeyProvider(properties.keyId());
+        if (!properties.hasConfiguredKeys()) {
+            return new InMemoryRsaKeyProvider(DEV_KEY_ID);
         }
-        return new PemRsaKeyProvider(
-                properties.keyId(),
-                resolvePem(resourceLoader, properties.privateKeyPem()),
-                resolvePem(resourceLoader, properties.publicKeyPem()));
+        return new RotatingRsaKeyProvider(properties, value -> resolvePem(resourceLoader, value));
+    }
+
+    /**
+     * 定期重新讀取金鑰材料，對應 Vault Agent 之類會就地改寫檔案的秘密投遞機制。
+     *
+     * <p>只有在設定了重載間隔、且金鑰確實來自外部時才建立排程 ——
+     * 對啟動時產生的臨時金鑰做重載沒有意義。
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnProperty(prefix = "auth.signing", name = "reload-interval")
+    public ScheduledExecutorService signingKeyRefresher(RsaKeyProvider keyProvider,
+                                                        SigningKeyProperties properties) {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "signing-key-refresher");
+            thread.setDaemon(true);
+            return thread;
+        });
+        if (properties.reloadEnabled() && keyProvider instanceof RotatingRsaKeyProvider rotating) {
+            long seconds = properties.reloadInterval().toSeconds();
+            scheduler.scheduleWithFixedDelay(rotating::reload, seconds, seconds, TimeUnit.SECONDS);
+        }
+        return scheduler;
     }
 
     @Bean

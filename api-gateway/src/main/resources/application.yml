@@ -7,6 +7,10 @@ server:
 spring:
   application:
     name: api-gateway
+  reactor:
+    # 響應式管線會在執行緒間切換，追蹤上下文必須自動傳遞，
+    # 否則日誌中的 traceId 會在第一次切換執行緒後就消失
+    context-propagation: auto
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -48,6 +52,20 @@ spring:
                 redis-rate-limiter.burstCapacity: 10
                 key-resolver: "#{@principalKeyResolver}"
 
+        # 授權中心的管理 API。與其他微服務走完全相同的路徑：
+        # 網關做路由級授權，服務內再以 @RequiresPermission 做細粒度檢查
+        - id: auth-center-admin
+          uri: ${AUTH_CENTER_URI:http://localhost:9000}
+          predicates:
+            - Path=/api/admin/**
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                key-resolver: "#{@principalKeyResolver}"
+
         - id: order-service
           uri: ${ORDER_SERVICE_URI:http://localhost:9100}
           predicates:
@@ -85,9 +103,13 @@ gateway:
       issuer: ${AUTH_ISSUER:https://auth.example.com}
       audience: ${AUTH_AUDIENCE:internal-api}
 
+    # 僅在 verification-mode 為 REMOTE 時生效
     remote:
       base-url: ${AUTH_CENTER_URI:http://localhost:9000}
       timeout: 500ms
+      # 快取存活時間直接等於登出與撤銷的最大延遲，只能是秒級
+      cache-ttl: 5s
+      cache-max-size: 50000
 
     revocation:
       enabled: true
@@ -117,6 +139,9 @@ gateway:
         # 漏寫的下場是 403 而不是默默放行 —— 這正是我們要的失敗方向
         - path: /auth/logout
 
+        - path: /api/admin/**
+          any-of-permissions: [ "user:manage" ]
+
         - path: /api/orders/**
           methods: [GET]
           any-of-permissions: [ "order:read" ]
@@ -127,7 +152,33 @@ gateway:
           methods: [DELETE]
           any-of-permissions: [ "order:delete" ]
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      # 保護 REMOTE 模式對授權中心的自省呼叫。
+      # 半開狀態刻意只放行少量試探請求：授權中心剛恢復時若立刻灌入全部流量，
+      # 很可能再次把它壓垮，形成反覆跳閘的震盪
+      tokenIntrospection:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 50
+        minimumNumberOfCalls: 20
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+
 management:
+  # 分散式追蹤。預設關閉：沒有收集器時開著只會讓每次輸出都失敗並洗版日誌。
+  # 本機要觀察時：docker compose --profile tracing up -d 後設 TRACING_ENABLED=true
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      # 取樣率是成本與可觀測性的取捨。正式環境的全量取樣會產生驚人的資料量與費用，
+      # 但取樣過低又會讓偶發問題永遠抓不到 —— 建議搭配「錯誤請求強制取樣」的後端策略
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
@@ -138,5 +189,7 @@ management:
         enabled: true
 
 logging:
+  # 不需要自訂 pattern：Spring Boot 偵測到 Micrometer Tracing 後會自動在每行日誌
+  # 附上 [traceId-spanId]，讓追蹤系統上看到的慢 span 能直接對應回日誌
   level:
     com.example.auth: ${LOG_LEVEL:INFO}

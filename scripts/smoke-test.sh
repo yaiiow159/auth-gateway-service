@@ -100,6 +100,44 @@ check '格式錯誤的 JSON 回 400 而非 503' 400 \
 check '不支援的方法回 405 而非 503' 405 \
   "$(status -X DELETE "$GATEWAY/auth/login")"
 
+pace
+echo '6. 使用者管理（授權中心自己也走網關的授權模型）'
+ADMIN_TOKEN=$(login admin 'Passw0rd!' | json_field accessToken)
+# 帳號名稱帶上時間戳，讓腳本可以對同一個環境重複執行而不會撞到唯一約束
+NEW_USER="probe-$(date +%s)"
+
+admin_post() {
+  curl -s -X POST "$GATEWAY/api/admin/users" -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H 'Content-Type: application/json' -d "$1"
+}
+
+CREATED=$(admin_post "{\"username\":\"$NEW_USER\",\"password\":\"S3cureP@ssw0rd\",\"roleCodes\":[\"ROLE_USER\"]}")
+NEW_USER_ID=$(echo "$CREATED" | json_field id)
+check 'admin 具備 user:manage，可建立帳號' 'yes' "$([ -n "$NEW_USER_ID" ] && echo yes || echo no)"
+check '新建帳號可立即登入' 200 \
+  "$(status -X POST "$GATEWAY/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$NEW_USER\",\"password\":\"S3cureP@ssw0rd\"}")"
+check 'alice 缺少 user:manage，建立帳號被拒' 403 \
+  "$(status -X POST "$GATEWAY/api/admin/users" -H "Authorization: Bearer $USER_TOKEN" \
+      -H 'Content-Type: application/json' -d '{"username":"eve","password":"S3cureP@ssw0rd"}')"
+check '重複帳號回 409' 409 \
+  "$(status -X POST "$GATEWAY/api/admin/users" -H "Authorization: Bearer $ADMIN_TOKEN" \
+      -H 'Content-Type: application/json' -d "{\"username\":\"$NEW_USER\",\"password\":\"S3cureP@ssw0rd\"}")"
+check '不存在的角色回 400 而非靜默建立無權限帳號' 400 \
+  "$(status -X POST "$GATEWAY/api/admin/users" -H "Authorization: Bearer $ADMIN_TOKEN" \
+      -H 'Content-Type: application/json' -d '{"username":"ghost-role-probe","password":"S3cureP@ssw0rd","roleCodes":["ROLE_NOPE"]}')"
+
+pace
+PROBE_REFRESH=$(curl -s -X POST "$GATEWAY/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$NEW_USER\",\"password\":\"S3cureP@ssw0rd\"}" | json_field refreshToken)
+status -X PUT "$GATEWAY/api/admin/users/$NEW_USER_ID/password" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"password":"An0therS3cureP@ss"}' > /dev/null
+check '管理者改密碼後，該使用者的 Refresh Token 立即失效' 401 "$(refresh_with "$PROBE_REFRESH")"
+
+status -X PUT "$GATEWAY/api/admin/users/$NEW_USER_ID/status" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"status":"DISABLED"}' > /dev/null
+check '停用後即使密碼正確也無法登入' 403 \
+  "$(status -X POST "$GATEWAY/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$NEW_USER\",\"password\":\"An0therS3cureP@ss\"}")"
+
 echo
 echo "通過 $passed 項，失敗 $failed 項"
 [ "$failed" -eq 0 ]

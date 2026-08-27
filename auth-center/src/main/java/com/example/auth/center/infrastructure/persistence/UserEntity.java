@@ -52,6 +52,33 @@ public class UserEntity {
         // JPA 規範要求的無參數建構子
     }
 
+    /**
+     * 建立新帳號。
+     *
+     * <p>設為套件私有：Entity 的生命週期只該由同一個套件內的 Adapter 掌控，
+     * 不讓應用層有機會繞過 Repository 直接組出一個半成品 Entity。
+     */
+    UserEntity(String id, String username, String passwordHash, String tenantId, AccountStatus status) {
+        this.id = id;
+        this.username = username;
+        this.passwordHash = passwordHash;
+        this.tenantId = tenantId;
+        this.status = status;
+    }
+
+    void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    void changeStatus(AccountStatus status) {
+        this.status = status;
+    }
+
+    void replaceRoles(Set<RoleEntity> newRoles) {
+        this.roles.clear();
+        this.roles.addAll(newRoles);
+    }
+
     public String getId() {
         return id;
     }
