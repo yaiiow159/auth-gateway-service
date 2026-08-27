@@ -18,7 +18,24 @@ auth:
     signature-ttl: 60s
 
 management:
+  # 分散式追蹤。預設關閉：沒有收集器時開著只會讓每次輸出都失敗並洗版日誌。
+  # 本機要觀察時：docker compose --profile tracing up -d 後設 TRACING_ENABLED=true
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      # 取樣率是成本與可觀測性的取捨。正式環境的全量取樣會產生驚人的資料量與費用，
+      # 但取樣過低又會讓偶發問題永遠抓不到 —— 建議搭配「錯誤請求強制取樣」的後端策略
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
         include: health,info,metrics
+
+logging:
+  # 不需要自訂 pattern：Spring Boot 偵測到 Micrometer Tracing 後會自動在每行日誌
+  # 附上 [traceId-spanId]，讓追蹤系統上看到的慢 span 能直接對應回日誌
+  level:
+    com.example: ${LOG_LEVEL:INFO}

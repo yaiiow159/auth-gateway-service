@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 /**
  * 啟動時產生一組臨時 RSA 金鑰，供本機開發使用。
  *
- * <p>正式環境請改用 {@link PemRsaKeyProvider} 或自行實作 KMS / Vault 的 Adapter：
+ * <p>正式環境請改用 {@link RotatingRsaKeyProvider}：
  * 這個實作在多副本部署下每個副本持有不同私鑰，A 副本簽的 Token 到 B 副本就驗不過。
  */
 public class InMemoryRsaKeyProvider implements RsaKeyProvider {
@@ -25,7 +25,7 @@ public class InMemoryRsaKeyProvider implements RsaKeyProvider {
     public InMemoryRsaKeyProvider(String keyId) {
         this.signingKey = generate(keyId);
         log.warn("使用啟動時產生的臨時簽章金鑰 (kid={})，僅適用於開發環境；"
-                + "正式環境請設定 auth.signing.private-key-pem / public-key-pem", keyId);
+                + "正式環境請設定 auth.signing.keys 由外部注入金鑰材料", keyId);
     }
 
     @Override

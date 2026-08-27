@@ -12,3 +12,16 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # 追蹤後端，僅在需要觀察分散式呼叫鏈時啟動：
+  #   docker compose --profile tracing up -d
+  # 接著以 TRACING_ENABLED=true 啟動三個服務，UI 位於 http://localhost:16686
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: auth-gateway-jaeger
+    profiles: ["tracing"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP over HTTP，對應 management.otlp.tracing.endpoint

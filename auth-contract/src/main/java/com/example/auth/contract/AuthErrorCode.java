@@ -19,6 +19,10 @@ public enum AuthErrorCode {
 
     ACCESS_DENIED("AUTH-2001", 403, "權限不足"),
 
+    USER_NOT_FOUND("AUTH-2101", 404, "使用者不存在"),
+    USERNAME_ALREADY_TAKEN("AUTH-2102", 409, "帳號已被使用"),
+    ROLE_NOT_FOUND("AUTH-2103", 400, "指定的角色不存在"),
+
     RATE_LIMITED("AUTH-3001", 429, "請求過於頻繁"),
 
     AUTH_CENTER_UNAVAILABLE("AUTH-9001", 503, "認證服務暫時無法使用");

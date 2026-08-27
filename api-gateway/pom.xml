@@ -47,10 +47,38 @@
       <artifactId>spring-security-oauth2-jose</artifactId>
     </dependency>
 
+    <!--
+      REMOTE 驗證模式把授權中心變成每個請求的同步依賴，因此必須有斷路器：
+      沒有它，授權中心一旦變慢，網關的請求會全部排隊等待，故障直接擴散成全站不可用。
+    -->
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-registry-prometheus</artifactId>
     </dependency>
+
+    <!--
+      分散式追蹤：Micrometer Tracing 提供與供應商無關的 API，OTLP exporter 負責輸出。
+      選 OTLP 而非任何一家 APM 的專屬協定，是為了讓後端（Jaeger、Tempo、Datadog…）
+      成為可替換的部署決定，而不是寫死在程式碼裡的依賴。
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.projectreactor</groupId>
       <artifactId>reactor-test</artifactId>

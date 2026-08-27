@@ -54,7 +54,7 @@ Java 21 · Spring Boot 3.3 · Spring Cloud Gateway 2023.0 · Redis · RS256 JWT
 | 模組 | 職責 |
 |------|------|
 | `auth-contract` | Header 名稱、Claim 名稱、錯誤碼、`AuthenticatedUser`、HMAC 簽章演算法。不依賴 Spring，任何 JVM 服務都能引用 |
-| `auth-center` | 身分認證、RBAC、Token 簽發／換發／撤銷、JWKS 發布。採六角架構（domain / application / infrastructure / interfaces） |
+| `auth-center` | 身分認證、RBAC、使用者管理、Token 簽發／換發／撤銷、JWKS 發布。採六角架構（domain / application / infrastructure / interfaces） |
 | `api-gateway` | 路由、本地驗簽、撤銷檢查、粗粒度授權、限流、身分注入 |
 | `auth-client-spring-boot-starter` | 下游服務的整合套件：解析並驗證身分 Header，提供 `@CurrentUser` 與 `@RequiresPermission` |
 | `sample-order-service` | 示範下游服務長什麼樣子 —— 沒有任何一行 Token 相關程式碼 |
@@ -116,7 +116,7 @@ java -jar sample-order-service/target/sample-order-service-1.0.0-SNAPSHOT.jar
 java -jar api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar
 ```
 
-執行端到端驗證（涵蓋認證、授權、防偽造、Token 生命週期與錯誤語意共 17 項）：
+執行端到端驗證（涵蓋認證、授權、防偽造、Token 生命週期、錯誤語意與使用者管理共 24 項）：
 
 ```bash
 bash scripts/smoke-test.sh
@@ -165,16 +165,20 @@ curl -s -X POST http://localhost:8080/auth/login -H 'Content-Type: application/j
 12. **認證路徑不讀快取。** 對 `findByUsername` 做快取等於讓改密碼延後生效，攻擊者能在 TTL 內以舊密碼換到完整壽命的新憑證。
 13. **限流分兩段。** 認證前以 IP 粗粒度攔截，認證後以使用者細緻管控，避免 CPU 被消耗在注定丟棄的請求上。
 
-## 上正式環境前尚須補齊
+## 正式環境相關能力
 
-這是一份可運行的架構骨架，以下項目刻意留白，因為它們的正確做法高度依賴實際的基礎設施：
+| 能力 | 做法 |
+|------|------|
+| **資料庫遷移** | Flyway，腳本位於 `auth-center/src/main/resources/db/migration`。刻意只用各家資料庫共通的語法，切換到 PostgreSQL 不需要改腳本 |
+| **金鑰輪替** | `RotatingRsaKeyProvider` 支援多把金鑰：以 `active-key-id` 指定的金鑰簽章，同時在 JWKS 發布全部公鑰，讓輪替期間的舊 Token 仍能驗證。搭配 `reload-interval` 可在不重啟的情況下換上 Vault Agent 新投遞的金鑰 |
+| **使用者管理** | `/api/admin/users` 提供建立帳號、改密碼、改狀態、改角色。改密碼與停用會一併撤銷該使用者的 Refresh Token |
+| **遠端驗證韌性** | `REMOTE` 模式加上 Resilience4j 斷路器與秒級結果快取。快取在外、斷路器在內，讓斷路器統計的是真正發出去的呼叫 |
+| **分散式追蹤** | Micrometer Tracing + OTLP，`docker compose --profile tracing up -d` 起 Jaeger，以 `TRACING_ENABLED=true` 啟動服務後在 <http://localhost:16686> 觀察 |
 
-- **資料庫遷移**：目前用 `schema.sql` + `data.sql`，正式環境應改為 Flyway 或 Liquibase。
-- **金鑰管理**：`InMemoryRsaKeyProvider` 僅供單機開發（多副本會各持一把私鑰）。正式環境請實作 KMS / Vault 的 `RsaKeyProvider` Adapter，並規劃輪替流程 —— `publicJwkSet()` 已預留同時發布新舊公鑰的能力。
-- **使用者與角色管理 API**：目前只有讀取路徑，寫入路徑（建帳號、指派角色）尚未實作。
-- **遠端驗證模式的斷路器**：`verification-mode: REMOTE` 目前只有逾時保護，正式使用需補上 Resilience4j 斷路器與結果快取。
-- **可觀測性**：已暴露 Prometheus 端點，但尚未接上 OpenTelemetry 的分散式追蹤。
-- **整合測試**：現有 50 個單元測試涵蓋核心邏輯，建議再補上 Testcontainers（Redis）與 WireMock（JWKS）的整合測試。
+仍待補齊：
+
+- **整合測試**：現有 60 個單元測試涵蓋核心邏輯，建議再補上 Testcontainers（Redis、PostgreSQL）與 WireMock（JWKS）的整合測試，讓 `scripts/smoke-test.sh` 驗證的內容能進入 CI。
+- **金鑰的 KMS 直簽**：目前的模型是「秘密由外部投遞、應用程式讀取」，適用 Vault Agent / External Secrets / CSI Driver。若要求私鑰永不離開 HSM，需另外實作一個呼叫 KMS 簽章 API 的 `RsaKeyProvider`。
 
 ## 專案結構
 
@@ -182,7 +186,8 @@ curl -s -X POST http://localhost:8080/auth/login -H 'Content-Type: application/j
 auth-gateway-service/
 ├── auth-contract/                     共享契約（無 Spring 依賴）
 ├── auth-center/                       授權中心
-│   └── domain / application / infrastructure / interfaces
+│   ├── domain / application / infrastructure / interfaces
+│   └── resources/db/migration/        Flyway 遷移腳本
 ├── api-gateway/                       網關
 │   └── authentication / authorization / filter / identity / config / support
 ├── auth-client-spring-boot-starter/   下游服務整合套件

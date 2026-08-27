@@ -19,6 +19,14 @@
       <artifactId>auth-contract</artifactId>
     </dependency>
 
+    <!--
+      管理端點與其他微服務一樣位於網關之後，因此同樣消費網關注入的身分。
+      授權中心在這件事上沒有特權：它的 /admin/** 也要通過 @RequiresPermission 檢查。
+    -->
+    <dependency>
+      <groupId>com.example.auth</groupId>
+      <artifactId>auth-client-spring-boot-starter</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
@@ -39,6 +47,21 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+
+    <!--
+      分散式追蹤：Micrometer Tracing 提供與供應商無關的 API，OTLP exporter 負責輸出。
+      選 OTLP 而非任何一家 APM 的專屬協定，是為了讓後端（Jaeger、Tempo、Datadog…）
+      成為可替換的部署決定，而不是寫死在程式碼裡的依賴。
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>
       <artifactId>caffeine</artifactId>
@@ -56,6 +79,19 @@
     <dependency>
       <groupId>com.nimbusds</groupId>
       <artifactId>nimbus-jose-jwt</artifactId>
+    </dependency>
+
+    <!-- 資料表結構由版本化遷移腳本管理，讓每個環境的結構演進可追溯、可重現 -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <!-- H2 支援仍內建於 flyway-core；PostgreSQL 在 Flyway 10 已拆成獨立模組，
+         正式環境改用它時只需切換 DB_URL，遷移腳本本身維持可攜 -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+      <scope>runtime</scope>
     </dependency>
 
     <dependency>

@@ -24,11 +24,13 @@ spring:
       # 資料表結構由版本化的 SQL 腳本管理，不交給 Hibernate 自動產生
       ddl-auto: none
     open-in-view: false
-  sql:
-    init:
-      # schema.sql / data.sql 使用 H2 專屬語法（MERGE ... KEY、CREATE INDEX IF NOT EXISTS），
-      # 只在 dev profile 下執行。正式環境的結構變更應由 Flyway 或 Liquibase 管理
-      mode: never
+  flyway:
+    # 結構與參考資料一律由版本化腳本管理，所有環境走同一條演進路徑
+    enabled: true
+    locations: classpath:db/migration
+    # 對既有的、尚未納管的資料庫首次導入時才需要開啟；
+    # 全新資料庫維持關閉，讓「結構不如預期」直接以失敗呈現而不是被默默略過
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -46,11 +48,26 @@ auth:
     revocation-key-prefix: "auth:revoked:"
     refresh-token-key-prefix: "auth:refresh:"
   signing:
-    key-id: ${AUTH_SIGNING_KEY_ID:auth-center-key}
-    # 留白時會在啟動時產生臨時金鑰（僅限單機開發）。
-    # 正式環境請注入 PKCS#8 / X.509 PEM，或指向 classpath: / file: 位址
-    private-key-pem: ${AUTH_SIGNING_PRIVATE_KEY:}
-    public-key-pem: ${AUTH_SIGNING_PUBLIC_KEY:}
+    # keys 留白時會在啟動時產生臨時金鑰（僅限單機開發：多副本部署下每個副本的金鑰不同）。
+    #
+    # 正式環境由 Vault Agent / External Secrets / CSI Driver 之類的機制把金鑰材料投遞到
+    # 容器內，再以 file: 位址讀取。輪替時先加入新金鑰讓 JWKS 提前發布，
+    # 再切換 active-key-id，最後等舊 Token 全數過期才移除舊金鑰 —— 少任何一步都會造成驗證失敗。
+    #
+    # active-key-id: signing-2026-08
+    # reload-interval: 5m          # 秘密檔案被就地改寫後多久生效；不設定則只在啟動時讀取
+    # keys:
+    #   - id: signing-2026-08
+    #     private-key-pem: file:/vault/secrets/signing-2026-08.key
+    #     public-key-pem: file:/vault/secrets/signing-2026-08.pub
+    #   - id: signing-2026-05      # 已退役，只留公鑰供尚未過期的 Token 驗證
+    #     public-key-pem: file:/vault/secrets/signing-2026-05.pub
+  # 管理端點同樣消費網關注入的身分，密鑰必須與網關的 gateway.auth.identity.signing-secret 一致
+  client:
+    verify-signature: true
+    signing-secret: ${IDENTITY_SIGNING_SECRET:dev-only-shared-secret-change-me}
+    signature-ttl: 60s
+
   cache:
     user:
       enabled: true
@@ -58,6 +75,17 @@ auth:
       maximum-size: 10000
 
 management:
+  # 分散式追蹤。預設關閉：沒有收集器時開著只會讓每次輸出都失敗並洗版日誌。
+  # 本機要觀察時：docker compose --profile tracing up -d 後設 TRACING_ENABLED=true
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      # 取樣率是成本與可觀測性的取捨。正式環境的全量取樣會產生驚人的資料量與費用，
+      # 但取樣過低又會讓偶發問題永遠抓不到 —— 建議搭配「錯誤請求強制取樣」的後端策略
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
@@ -68,15 +96,7 @@ management:
         enabled: true
 
 logging:
+  # 不需要自訂 pattern：Spring Boot 偵測到 Micrometer Tracing 後會自動在每行日誌
+  # 附上 [traceId-spanId]，讓追蹤系統上看到的慢 span 能直接對應回日誌
   level:
     com.example.auth: ${LOG_LEVEL:INFO}
-
----
-# 僅本機開發：初始化 H2 結構與示範資料
-spring:
-  config:
-    activate:
-      on-profile: dev
-  sql:
-    init:
-      mode: always
