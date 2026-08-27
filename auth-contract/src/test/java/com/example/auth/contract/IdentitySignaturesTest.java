@@ -74,6 +74,18 @@ class IdentitySignaturesTest {
         assertThat(IdentitySignatures.verify(SECRET, user, "", NOW, TOLERANCE)).isFalse();
     }
 
+    @Test
+    @DisplayName("含分隔符的角色代碼不會與兩個角色產生相同簽章")
+    void distinguishesDelimiterInsideCodeFromTwoSeparateCodes() {
+        AuthenticatedUser singleRoleContainingComma = user(Set.of("ROLE_VIEWER,ROLE_ADMIN"), Set.of());
+        AuthenticatedUser twoDistinctRoles = user(Set.of("ROLE_VIEWER", "ROLE_ADMIN"), Set.of());
+
+        String signature = IdentitySignatures.sign(SECRET, singleRoleContainingComma, NOW);
+
+        assertThat(IdentitySignatures.sign(SECRET, twoDistinctRoles, NOW)).isNotEqualTo(signature);
+        assertThat(IdentitySignatures.verify(SECRET, twoDistinctRoles, signature, NOW, TOLERANCE)).isFalse();
+    }
+
     private static AuthenticatedUser user(Set<String> roles, Set<String> permissions) {
         return new AuthenticatedUser("1024", "timmy", roles, permissions, "tenant-a");
     }

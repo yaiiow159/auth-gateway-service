@@ -2,8 +2,7 @@ package com.example.auth.gateway.identity;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import com.example.auth.contract.HeaderCodec;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -23,8 +22,9 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
  *       讓下游即使被繞過網關直連也能識破偽造請求（零信任）。</li>
  * </ol>
  *
- * <p>使用者名稱與租戶識別碼以 URL encoding 處理後才寫入 Header：HTTP Header 只保證能承載
- * ASCII，中文暱稱之類的內容若直接塞入，輕則亂碼、重則被代理伺服器截斷。
+ * <p>所有寫入 Header 的值都先經過 {@link HeaderCodec} 編碼，角色與權限則是逐一編碼後才串接。
+ * HTTP Header 只保證能承載 ASCII，中文暱稱直接塞入輕則亂碼、重則被代理截斷；
+ * 而角色代碼若含有分隔用的逗號，未編碼時會在下游被拆成兩個角色，且簽章察覺不到。
  * 簽章計算的是「編碼前」的原始值，下游必須先解碼再驗章。
  */
 public class IdentityPropagator {
@@ -74,10 +74,10 @@ public class IdentityPropagator {
     }
 
     private static String join(Set<String> values) {
-        return String.join(AuthHeaders.VALUE_DELIMITER, values);
+        return HeaderCodec.encodeList(values);
     }
 
     private static String encode(String value) {
-        return value == null ? null : URLEncoder.encode(value, StandardCharsets.UTF_8);
+        return HeaderCodec.encodeValue(value);
     }
 }

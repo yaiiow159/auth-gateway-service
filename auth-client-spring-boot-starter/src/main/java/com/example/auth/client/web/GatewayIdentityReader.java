@@ -2,14 +2,11 @@ package com.example.auth.client.web;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
+import com.example.auth.contract.HeaderCodec;
 import com.example.auth.contract.IdentitySignatures;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -67,18 +64,12 @@ public class GatewayIdentityReader {
         }
     }
 
-    /** 網關以 URL encoding 寫入非 ASCII 內容，這裡對稱地還原。 */
+    /** 與網關的 {@link HeaderCodec} 對稱還原，兩端共用同一份實作以確保編解碼不會分岔。 */
     private static String decode(String value) {
-        return value == null ? null : URLDecoder.decode(value, StandardCharsets.UTF_8);
+        return HeaderCodec.decodeValue(value);
     }
 
     private static Set<String> split(String value) {
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        return Arrays.stream(value.split(AuthHeaders.VALUE_DELIMITER))
-                .map(String::trim)
-                .filter(item -> !item.isEmpty())
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return HeaderCodec.decodeList(value);
     }
 }

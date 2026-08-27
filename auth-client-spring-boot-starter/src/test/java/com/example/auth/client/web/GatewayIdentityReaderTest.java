@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
+import com.example.auth.contract.HeaderCodec;
 import com.example.auth.contract.IdentitySignatures;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -86,13 +87,13 @@ class GatewayIdentityReaderTest {
         headers.put(AuthHeaders.USER_ID, user.userId());
         headers.put(AuthHeaders.USERNAME, encode(user.username()));
         headers.put(AuthHeaders.TENANT_ID, encode(user.tenantId()));
-        headers.put(AuthHeaders.ROLES, String.join(AuthHeaders.VALUE_DELIMITER, user.roles()));
-        headers.put(AuthHeaders.PERMISSIONS, String.join(AuthHeaders.VALUE_DELIMITER, user.permissions()));
+        headers.put(AuthHeaders.ROLES, HeaderCodec.encodeList(user.roles()));
+        headers.put(AuthHeaders.PERMISSIONS, HeaderCodec.encodeList(user.permissions()));
         headers.put(AuthHeaders.SIGNATURE, IdentitySignatures.sign(SECRET, user, NOW));
         return headers;
     }
 
     private static String encode(String value) {
-        return value == null ? null : URLEncoder.encode(value, StandardCharsets.UTF_8);
+        return HeaderCodec.encodeValue(value);
     }
 }

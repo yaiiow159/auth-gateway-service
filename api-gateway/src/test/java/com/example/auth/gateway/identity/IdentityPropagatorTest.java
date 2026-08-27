@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.auth.contract.AuthHeaders;
 import com.example.auth.contract.AuthenticatedUser;
+import com.example.auth.contract.HeaderCodec;
 import com.example.auth.contract.IdentitySignatures;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -45,8 +46,9 @@ class IdentityPropagatorTest {
         HttpHeaders headers = propagator.withTrustedIdentity(requestWithForgedIdentity(), USER).getHeaders();
 
         assertThat(headers.getFirst(AuthHeaders.USER_ID)).isEqualTo("2048");
-        assertThat(headers.getFirst(AuthHeaders.ROLES)).isEqualTo("ROLE_USER");
-        assertThat(split(headers.getFirst(AuthHeaders.PERMISSIONS)))
+        assertThat(HeaderCodec.decodeList(headers.getFirst(AuthHeaders.ROLES)))
+                .containsExactly("ROLE_USER");
+        assertThat(HeaderCodec.decodeList(headers.getFirst(AuthHeaders.PERMISSIONS)))
                 .containsExactlyInAnyOrder("order:read", "order:create");
     }
 
@@ -95,7 +97,16 @@ class IdentityPropagatorTest {
                 .build();
     }
 
-    private static String[] split(String value) {
-        return value == null ? new String[0] : value.split(AuthHeaders.VALUE_DELIMITER);
+    @Test
+    @DisplayName("含分隔符的角色代碼被編碼，下游不會把它誤解成兩個角色")
+    void encodesDelimiterInsideRoleCode() {
+        AuthenticatedUser craftedRole = new AuthenticatedUser(
+                "2048", "timmy", Set.of("ROLE_VIEWER,ROLE_ADMIN"), Set.of(), null);
+
+        String header = propagator.withTrustedIdentity(anonymousRequest(), craftedRole)
+                .getHeaders().getFirst(AuthHeaders.ROLES);
+
+        assertThat(header).doesNotContain(",").contains("%2C");
+        assertThat(HeaderCodec.decodeList(header)).containsExactly("ROLE_VIEWER,ROLE_ADMIN");
     }
 }

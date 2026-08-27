@@ -98,8 +98,15 @@ public final class IdentitySignatures {
                 Long.toString(issuedAtEpochSecond));
     }
 
+    /**
+     * 排序後逐一編碼再串接。
+     *
+     * <p>排序是為了消除 {@link java.util.Set} 迭代順序造成的簽章不穩定；
+     * 逐一編碼則是為了消除分隔符歧義 —— 少了它，{@code {"A,B"}} 與 {@code {"A","B"}}
+     * 會產生相同的簽章輸入，讓一個含逗號的角色代碼可以在通過驗章的前提下被拆成兩個角色。
+     */
     private static String joinSorted(java.util.Set<String> values) {
-        return String.join(AuthHeaders.VALUE_DELIMITER, new TreeSet<>(values));
+        return HeaderCodec.encodeList(new TreeSet<>(values));
     }
 
     private static String nullToEmpty(String value) {
