@@ -59,14 +59,13 @@ public class GatewaySecurityConfiguration {
         return new AccessPolicyChain(policies, properties.authorization().defaultDecision());
     }
 
+    /**
+     * 設定的合法性由 {@link IdentityPropagator} 的建構子自行把關，這裡只負責組裝。
+     * 建構子拋出的例外會被 Spring 包成 {@code BeanCreationException}，應用程式啟動即失敗。
+     */
     @Bean
     public IdentityPropagator identityPropagator(GatewayAuthProperties properties, Clock clock) {
         GatewayAuthProperties.Identity identity = properties.identity();
-        if (identity.signingEnabled() && isBlank(identity.signingSecret())) {
-            throw new IllegalStateException(
-                    "已啟用身分簽章但未設定 gateway.auth.identity.signing-secret；"
-                            + "請由環境變數或 Secret 注入，切勿寫死在設定檔中");
-        }
         return new IdentityPropagator(identity.signingEnabled(), identity.signingSecret(), clock);
     }
 
@@ -93,9 +92,5 @@ public class GatewaySecurityConfiguration {
     @Bean
     public IdentityPropagationGlobalFilter identityPropagationGlobalFilter(IdentityPropagator identityPropagator) {
         return new IdentityPropagationGlobalFilter(identityPropagator);
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
     }
 }

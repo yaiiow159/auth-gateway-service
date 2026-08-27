@@ -7,6 +7,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -32,10 +33,21 @@ public class IdentityPropagator {
     private final String signingSecret;
     private final Clock clock;
 
+    /**
+     * @throws IllegalArgumentException 啟用簽章卻未提供密鑰時。這個檢查刻意放在建構子裡：
+     *                                  讓「啟用簽章但沒有密鑰」這種物件根本無法被建構出來，
+     *                                  而不是依賴每一個組裝點都記得先檢查一次。
+     *                                  失敗發生在啟動階段，好過帶著「以為有簽、其實沒簽」的設定跑上正式環境。
+     */
     public IdentityPropagator(boolean signingEnabled, String signingSecret, Clock clock) {
+        if (signingEnabled && (signingSecret == null || signingSecret.isBlank())) {
+            throw new IllegalArgumentException(
+                    "已啟用身分簽章但未設定 gateway.auth.identity.signing-secret；"
+                            + "請由環境變數或 Secret 注入，切勿寫死在設定檔中");
+        }
         this.signingEnabled = signingEnabled;
         this.signingSecret = signingSecret;
-        this.clock = clock;
+        this.clock = Objects.requireNonNull(clock, "clock 不可為 null");
     }
 
     /** 匿名請求：只做消毒，不注入任何身分。 */
