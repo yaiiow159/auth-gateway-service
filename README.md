@@ -101,8 +101,12 @@ mvn -B clean package
 分別在三個終端啟動（或用 IDE 執行）：
 
 ```bash
-java -jar auth-center/target/auth-center-1.0.0-SNAPSHOT.jar
+java -jar auth-center/target/auth-center-1.0.0-SNAPSHOT.jar --spring.profiles.active=dev
 ```
+
+`dev` profile 必須明確指定。它控制兩件只該在本機發生的事：初始化 H2 結構與建立示範帳號。
+預設不啟用任何 profile，是為了讓忘記設定 `SPRING_PROFILES_ACTIVE` 的部署不會把已知密碼的
+帳號寫進真實資料庫 —— 種子程式另外還會檢查連線是否指向記憶體內資料庫，作為第二道防線。
 
 ```bash
 java -jar sample-order-service/target/sample-order-service-1.0.0-SNAPSHOT.jar
@@ -112,7 +116,7 @@ java -jar sample-order-service/target/sample-order-service-1.0.0-SNAPSHOT.jar
 java -jar api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar
 ```
 
-執行端到端驗證（涵蓋認證、授權、防偽造、Token 生命週期共 13 項）：
+執行端到端驗證（涵蓋認證、授權、防偽造、Token 生命週期與錯誤語意共 17 項）：
 
 ```bash
 bash scripts/smoke-test.sh
@@ -155,6 +159,11 @@ curl -s -X POST http://localhost:8080/auth/login -H 'Content-Type: application/j
 6. **Refresh Token 一次性輪替。** 以 Redis `GETDEL` 單一原子指令完成，併發重放只有一個會成功。
 7. **登入錯誤訊息不區分「帳號不存在」與「密碼錯誤」**，避免成為帳號列舉的側信道。
 8. **`/internal/**` 不建立網關路由**，內部端點在網關層就不可能被外部觸及。
+9. **登出同時作廢 Access 與 Refresh Token。** Refresh Token 在簽發時就與 Access Token 的 `jti` 綁定，因此客戶端不必附上它也能被精準作廢，且只影響本次工作階段。
+10. **Refresh Token 重放會撤銷整條憑證鏈。** 只拒絕該次請求並不夠 —— 搶先換發成功的攻擊者手上那條鏈仍然有效。
+11. **身分 Header 的值逐一編碼。** 未編碼時，一個含逗號的角色代碼會在下游被拆成兩個角色，而 HMAC 簽章察覺不到。
+12. **認證路徑不讀快取。** 對 `findByUsername` 做快取等於讓改密碼延後生效，攻擊者能在 TTL 內以舊密碼換到完整壽命的新憑證。
+13. **限流分兩段。** 認證前以 IP 粗粒度攔截，認證後以使用者細緻管控，避免 CPU 被消耗在注定丟棄的請求上。
 
 ## 上正式環境前尚須補齊
 
@@ -165,7 +174,7 @@ curl -s -X POST http://localhost:8080/auth/login -H 'Content-Type: application/j
 - **使用者與角色管理 API**：目前只有讀取路徑，寫入路徑（建帳號、指派角色）尚未實作。
 - **遠端驗證模式的斷路器**：`verification-mode: REMOTE` 目前只有逾時保護，正式使用需補上 Resilience4j 斷路器與結果快取。
 - **可觀測性**：已暴露 Prometheus 端點，但尚未接上 OpenTelemetry 的分散式追蹤。
-- **整合測試**：現有 27 個單元測試涵蓋核心邏輯，建議再補上 Testcontainers（Redis）與 WireMock（JWKS）的整合測試。
+- **整合測試**：現有 50 個單元測試涵蓋核心邏輯，建議再補上 Testcontainers（Redis）與 WireMock（JWKS）的整合測試。
 
 ## 專案結構
 
