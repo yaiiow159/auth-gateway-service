@@ -10,7 +10,16 @@ import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -47,6 +56,32 @@ public class AuthCenterExceptionHandler {
                 .orElse("請求參數不正確");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError("AUTH-4000", detail, request.getRequestURI(), requestId(request), now()));
+    }
+
+    /**
+     * Spring MVC 針對格式錯誤的請求所拋出的例外（壞掉的 JSON、不支援的方法或媒體型別等）
+     * 都實作了 {@link ErrorResponse} 並自帶正確的 4xx 狀態碼。
+     *
+     * <p>少了這個分支，它們會落到下方的兜底處理而被轉成 503：監控看到的是授權中心大量 5xx，
+     * 可能觸發告警、讓負載均衡器把健康的實例移出服務、甚至讓上游斷路器跳開，
+     * 而實際上只是有人送了壞請求。錯誤的責任歸屬會直接誤導事故排查的方向。
+     */
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            HttpRequestMethodNotSupportedException.class,
+            HttpMediaTypeNotSupportedException.class,
+            HttpMediaTypeNotAcceptableException.class,
+            ServletRequestBindingException.class,
+            MethodArgumentTypeMismatchException.class,
+            ErrorResponseException.class})
+    public ResponseEntity<ApiError> handleClientError(Exception e, HttpServletRequest request) {
+        // 這些例外自帶語意正確的狀態碼（400 / 405 / 415 / 406），沿用它而不是一律回 400
+        HttpStatusCode status = e instanceof ErrorResponse errorResponse
+                ? errorResponse.getStatusCode()
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status)
+                .body(new ApiError("AUTH-4000", "請求格式不正確",
+                        request.getRequestURI(), requestId(request), now()));
     }
 
     @ExceptionHandler(Exception.class)

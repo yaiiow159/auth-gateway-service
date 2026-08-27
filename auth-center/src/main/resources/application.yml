@@ -6,8 +6,10 @@ spring:
   application:
     name: auth-center
   profiles:
-    # 預設以 dev 啟動；正式環境請以 SPRING_PROFILES_ACTIVE=prod 覆寫
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # 刻意不預設 dev：若預設為 dev，任何忘記設定 SPRING_PROFILES_ACTIVE 的部署
+    # 都會啟用 DevDataSeeder，把已知密碼的示範帳號寫進真實資料庫。
+    # 本機開發請明確加上 --spring.profiles.active=dev
+    active: ${SPRING_PROFILES_ACTIVE:}
   threads:
     # Java 21 虛擬執行緒：授權中心是典型的 IO 密集型服務（資料庫 + Redis），
     # 開啟後可在不改寫成響應式程式碼的前提下大幅提升併發承載
@@ -24,7 +26,9 @@ spring:
     open-in-view: false
   sql:
     init:
-      mode: always
+      # schema.sql / data.sql 使用 H2 專屬語法（MERGE ... KEY、CREATE INDEX IF NOT EXISTS），
+      # 只在 dev profile 下執行。正式環境的結構變更應由 Flyway 或 Liquibase 管理
+      mode: never
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -66,3 +70,13 @@ management:
 logging:
   level:
     com.example.auth: ${LOG_LEVEL:INFO}
+
+---
+# 僅本機開發：初始化 H2 結構與示範資料
+spring:
+  config:
+    activate:
+      on-profile: dev
+  sql:
+    init:
+      mode: always
